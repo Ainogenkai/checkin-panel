@@ -7,22 +7,31 @@ on:
       - master
     tags:
       - 'v*'
-  workflow_dispatch: # 支持在 GitHub 页面上手动点击触发
+  workflow_dispatch:
 
 jobs:
   build-arm64:
-    # 使用 GitHub 原生 64 位 ARM runner，速度最快
     runs-on: ubuntu-24.04-arm
 
     permissions:
       contents: read
-      packages: write # 必须赋予向 ghcr.io 推送镜像的写权限
+      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 关键步骤：将包含大写的 GitHub 用户名/仓库名自动转为纯小写
+      # 自动补齐缺失的 CONTEXT.md，防止 Dockerfile 的 COPY 步骤报错
+      - name: Ensure CONTEXT.md exists
+        run: |
+          if [ ! -f CONTEXT.md ]; then
+            if [ -f context.md ]; then
+              cp context.md CONTEXT.md
+            else
+              touch CONTEXT.md
+            fi
+          fi
+
       - name: Normalize repository name to lowercase
         id: repo_name
         run: |
@@ -43,14 +52,13 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          # 使用前序步骤生成的纯小写镜像前缀
           images: ${{ steps.repo_name.outputs.image }}
           tags: |
             type=raw,value=latest
             type=ref,event=tag
 
       - name: Build and push ARM64 image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -58,6 +66,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 开启 Actions 缓存加速下一次构建
           cache-from: type=gha
           cache-to: type=gha,mode=max
